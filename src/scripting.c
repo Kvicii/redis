@@ -31,6 +31,7 @@
 #include "sha1.h"
 #include "rand.h"
 #include "cluster.h"
+#include "monotonic.h"
 
 #include <lua.h>
 #include <lauxlib.h>
@@ -604,9 +605,7 @@ int luaRedisGenericCommand(lua_State *lua, int raise_error) {
 
     /* Check the ACLs. */
     int acl_errpos;
-    int acl_retval = ACLCheckCommandPerm(c,&acl_errpos);
-    if (acl_retval == ACL_OK && c->cmd->proc == publishCommand)
-        acl_retval = ACLCheckPubsubPerm(c,1,1,0,&acl_errpos);
+    int acl_retval = ACLCheckAllPerm(c,&acl_errpos);
     if (acl_retval != ACL_OK) {
         addACLLogEntry(c,acl_retval,acl_errpos,NULL);
         switch (acl_retval) {
@@ -1429,7 +1428,7 @@ sds luaCreateFunction(client *c, lua_State *lua, robj *body) {
 
 /* This is the Lua script "count" hook that we use to detect scripts timeout. */
 void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
-    long long elapsed = mstime() - server.lua_time_start;
+    long long elapsed = elapsedMs(server.lua_time_start);
     UNUSED(ar);
     UNUSED(lua);
 
@@ -1453,6 +1452,14 @@ void luaMaskCountHook(lua_State *lua, lua_Debug *ar) {
     if (server.lua_timedout) processEventsWhileBlocked();
     if (server.lua_kill) {
         serverLog(LL_WARNING,"Lua script killed by user with SCRIPT KILL.");
+
+        /*
+         * Set the hook to invoke all the time so the user
+         * will not be able to catch the error with pcall and invoke
+         * pcall again which will prevent the script from ever been killed
+         */
+        lua_sethook(lua, luaMaskCountHook, LUA_MASKLINE, 0);
+
         lua_pushstring(lua,"Script killed by user with SCRIPT KILL...");
         lua_error(lua);
     }
@@ -1498,7 +1505,6 @@ void evalGenericCommand(client *c, int evalsha) {
     server.lua_replicate_commands = server.lua_always_replicate_commands;
     server.lua_multi_emitted = 0;
     server.lua_repl = PROPAGATE_AOF|PROPAGATE_REPL;
-    server.in_eval = 1;
 
     /* Get the number of arguments that are keys */
     if (getLongLongFromObjectOrReply(c,c->argv[2],&numkeys,NULL) != C_OK)
@@ -1570,9 +1576,11 @@ void evalGenericCommand(client *c, int evalsha) {
      *
      * If we are debugging, we set instead a "line" hook so that the
      * debugger is call-back at every line executed by the script. */
+    server.in_eval = 1;
     server.lua_caller = c;
     server.lua_cur_script = funcname + 2;
-    server.lua_time_start = mstime();
+    server.lua_time_start = getMonotonicUs();
+    server.lua_time_snapshot = mstime();
     server.lua_kill = 0;
     if (server.lua_time_limit > 0 && ldb.active == 0) {
         lua_sethook(lua,luaMaskCountHook,LUA_MASKCOUNT,100000);
@@ -1602,6 +1610,7 @@ void evalGenericCommand(client *c, int evalsha) {
         if (server.masterhost && server.master)
             queueClientForReprocessing(server.master);
     }
+    server.in_eval = 0;
     server.lua_caller = NULL;
     server.lua_cur_script = NULL;
 
@@ -1678,8 +1687,6 @@ void evalGenericCommand(client *c, int evalsha) {
             forceCommandPropagation(c,PROPAGATE_REPL|PROPAGATE_AOF);
         }
     }
-
-    server.in_eval = 0;
 }
 
 void evalCommand(client *c) {
@@ -2724,7 +2731,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
 
     /* Check if a timeout occurred. */
     if (ar->event == LUA_HOOKCOUNT && ldb.step == 0 && bp == 0) {
-        mstime_t elapsed = mstime() - server.lua_time_start;
+        mstime_t elapsed = elapsedMs(server.lua_time_start);
         mstime_t timelimit = server.lua_time_limit ?
                              server.lua_time_limit : 5000;
         if (elapsed >= timelimit) {
@@ -2754,6 +2761,7 @@ void luaLdbLineHook(lua_State *lua, lua_Debug *ar) {
             lua_pushstring(lua, "timeout during Lua debugging with client closing connection");
             lua_error(lua);
         }
-        server.lua_time_start = mstime();
+        server.lua_time_start = getMonotonicUs();
+        server.lua_time_snapshot = mstime();
     }
 }
