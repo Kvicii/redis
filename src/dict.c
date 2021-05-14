@@ -394,10 +394,11 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     int table;
 
     if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL;
-
+    // 如果当前正在做rehash 会触发一次bucket的迁移 从ht[0] -> ht[1]
     if (dictIsRehashing(d)) _dictRehashStep(d);
     h = dictHashKey(d, key);
 
+    // 查询ht[0]和ht[1] 如果查找到数据直接返回
     for (table = 0; table <= 1; table++) {
         idx = h & d->ht[table].sizemask;
         he = d->ht[table].table[idx];
@@ -420,6 +421,7 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
             prevHe = he;
             he = he->next;
         }
+        // 如果查找完ht[0]之后 并没有做rehash 直接break 省去查找ht[1]的时间消耗
         if (!dictIsRehashing(d)) break;
     }
     return NULL; /* not found */
@@ -995,6 +997,8 @@ static int _dictExpandIfNeeded(dict *d)
      * table (global setting) or we should avoid it but the ratio between
      * elements/buckets is over the "safe" threshold, we resize doubling
      * the number of buckets. */
+    // rehash条件
+    // 第一个全局hash表容量达到了上限 && (没有进行RDB和AOF重写 || loadFactor > 5)
     if (d->ht[0].used >= d->ht[0].size &&
         (dict_can_resize ||
          d->ht[0].used/d->ht[0].size > dict_force_resize_ratio) &&
