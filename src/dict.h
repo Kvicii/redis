@@ -81,6 +81,9 @@ typedef struct dict {
     dictType *type;
     void *privdata;
     dictht ht[2];
+    // 表示当前hash表rehash的进度
+    // -1代表没有进行rehash
+    // 0代表开始进行rehash 完成之后又变为-1
     long rehashidx; /* rehashing not in progress if rehashidx == -1 */
     int16_t pauserehash; /* If >0 rehashing is paused (<0 indicates coding error) */
 } dict;
@@ -102,6 +105,7 @@ typedef void (dictScanFunction)(void *privdata, const dictEntry *de);
 typedef void (dictScanBucketFunction)(void *privdata, dictEntry **bucketref);
 
 /* This is the initial size of every hash table */
+// 全局hash表默认初始容量
 #define DICT_HT_INITIAL_SIZE     4
 
 /* ------------------------------- Macros ------------------------------------*/
