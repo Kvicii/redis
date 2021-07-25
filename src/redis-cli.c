@@ -1129,6 +1129,7 @@ static sds cliFormatReplyRaw(redisReply *r) {
     case REDIS_REPLY_DOUBLE:
         out = sdscatprintf(out,"%s",r->str);
         break;
+    case REDIS_REPLY_SET:
     case REDIS_REPLY_ARRAY:
     case REDIS_REPLY_PUSH:
         for (i = 0; i < r->elements; i++) {
@@ -1187,6 +1188,7 @@ static sds cliFormatReplyCSV(redisReply *r) {
         out = sdscat(out,r->integer ? "true" : "false");
     break;
     case REDIS_REPLY_ARRAY:
+    case REDIS_REPLY_SET:
     case REDIS_REPLY_PUSH:
     case REDIS_REPLY_MAP: /* CSV has no map type, just output flat list. */
         for (i = 0; i < r->elements; i++) {
@@ -1310,6 +1312,7 @@ static int cliReadReply(int output_raw_strings) {
     if (output) {
         out = cliFormatReply(reply, config.output, output_raw_strings);
         fwrite(out,sdslen(out),1,stdout);
+        fflush(stdout);
         sdsfree(out);
     }
     freeReplyObject(reply);
@@ -1894,6 +1897,7 @@ static void usage(void) {
 "  --lru-test <keys>  Simulate a cache workload with an 80-20 distribution.\n"
 "  --replica          Simulate a replica showing commands received from the master.\n"
 "  --rdb <filename>   Transfer an RDB dump from remote server to local file.\n"
+"                     Use filename of \"-\" to write to stdout.\n"
 "  --pipe             Transfer raw Redis protocol from stdin to server.\n"
 "  --pipe-timeout <n> In --pipe mode, abort with error if after sending all data.\n"
 "                     no reply is received within <n> seconds.\n"
@@ -6536,9 +6540,9 @@ static int clusterManagerCommandImport(int argc, char **argv) {
     }
 
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_COPY)
-        strcat(cmdfmt, " %s");
+        cmdfmt = sdscat(cmdfmt," COPY");
     if (config.cluster_manager_command.flags & CLUSTER_MANAGER_CMD_FLAG_REPLACE)
-        strcat(cmdfmt, " %s");
+        cmdfmt = sdscat(cmdfmt," REPLACE");
 
     /* Use SCAN to iterate over the keys, migrating to the
      * right node as needed. */
@@ -6570,8 +6574,7 @@ static int clusterManagerCommandImport(int argc, char **argv) {
             printf("Migrating %s to %s:%d: ", key, target->ip, target->port);
             redisReply *r = reconnectingRedisCommand(src_ctx, cmdfmt,
                                                      target->ip, target->port,
-                                                     key, 0, timeout,
-                                                     "COPY", "REPLACE");
+                                                     key, 0, timeout);
             if (!r || r->type == REDIS_REPLY_ERROR) {
                 if (r && r->str) {
                     clusterManagerLogErr("Source %s:%d replied with "
@@ -6987,7 +6990,7 @@ static void latencyDistMode(void) {
 #define RDB_EOF_MARK_SIZE 40
 
 void sendReplconf(const char* arg1, const char* arg2) {
-    printf("sending REPLCONF %s %s\n", arg1, arg2);
+    fprintf(stderr, "sending REPLCONF %s %s\n", arg1, arg2);
     redisReply *reply = redisCommand(context, "REPLCONF %s %s", arg1, arg2);
 
     /* Handle any error conditions */
@@ -7047,7 +7050,7 @@ unsigned long long sendSync(redisContext *c, char *out_eof) {
     }
     *p = '\0';
     if (buf[0] == '-') {
-        printf("SYNC with master failed: %s\n", buf);
+        fprintf(stderr, "SYNC with master failed: %s\n", buf);
         exit(1);
     }
     if (strncmp(buf+1,"EOF:",4) == 0 && strlen(buf+5) >= RDB_EOF_MARK_SIZE) {
@@ -7152,8 +7155,9 @@ static void getRDB(clusterManagerNode *node) {
             payload, filename);
     }
 
+    int write_to_stdout = !strcmp(filename,"-");
     /* Write to file. */
-    if (!strcmp(filename,"-")) {
+    if (write_to_stdout) {
         fd = STDOUT_FILENO;
     } else {
         fd = open(filename, O_CREAT|O_WRONLY, 0644);
@@ -7195,7 +7199,7 @@ static void getRDB(clusterManagerNode *node) {
     }
     if (usemark) {
         payload = ULLONG_MAX - payload - RDB_EOF_MARK_SIZE;
-        if (ftruncate(fd, payload) == -1)
+        if (!write_to_stdout && ftruncate(fd, payload) == -1)
             fprintf(stderr,"ftruncate failed: %s.\n", strerror(errno));
         fprintf(stderr,"Transfer finished with success after %llu bytes\n", payload);
     } else {
@@ -7204,7 +7208,7 @@ static void getRDB(clusterManagerNode *node) {
     redisFree(s); /* Close the connection ASAP as fsync() may take time. */
     if (node)
         node->context = NULL;
-    if (fsync(fd) == -1) {
+    if (!write_to_stdout && fsync(fd) == -1) {
         fprintf(stderr,"Fail to fsync '%s': %s\n", filename, strerror(errno));
         exit(1);
     }

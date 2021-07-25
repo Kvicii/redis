@@ -649,14 +649,13 @@ void setDeferredSetLen(client *c, void *node, long length) {
 }
 
 void setDeferredAttributeLen(client *c, void *node, long length) {
-    int prefix = c->resp == 2 ? '*' : '|';
-    if (c->resp == 2) length *= 2;
-    setDeferredAggregateLen(c,node,length,prefix);
+    serverAssert(c->resp >= 3);
+    setDeferredAggregateLen(c,node,length,'|');
 }
 
 void setDeferredPushLen(client *c, void *node, long length) {
-    int prefix = c->resp == 2 ? '*' : '>';
-    setDeferredAggregateLen(c,node,length,prefix);
+    serverAssert(c->resp >= 3);
+    setDeferredAggregateLen(c,node,length,'>');
 }
 
 /* Add a double as a bulk reply */
@@ -682,6 +681,16 @@ void addReplyDouble(client *c, double d) {
             dlen = snprintf(dbuf,sizeof(dbuf),",%.17g\r\n",d);
             addReplyProto(c,dbuf,dlen);
         }
+    }
+}
+
+void addReplyBigNum(client *c, const char* num, size_t len) {
+    if (c->resp == 2) {
+        addReplyBulkCBuffer(c, num, len);
+    } else {
+        addReplyProto(c,"(",1);
+        addReplyProto(c,num,len);
+        addReply(c,shared.crlf);
     }
 }
 
@@ -756,14 +765,13 @@ void addReplySetLen(client *c, long length) {
 }
 
 void addReplyAttributeLen(client *c, long length) {
-    int prefix = c->resp == 2 ? '*' : '|';
-    if (c->resp == 2) length *= 2;
-    addReplyAggregateLen(c,length,prefix);
+    serverAssert(c->resp >= 3);
+    addReplyAggregateLen(c,length,'|');
 }
 
 void addReplyPushLen(client *c, long length) {
-    int prefix = c->resp == 2 ? '*' : '>';
-    addReplyAggregateLen(c,length,prefix);
+    serverAssert(c->resp >= 3);
+    addReplyAggregateLen(c,length,'>');
 }
 
 void addReplyNull(client *c) {
@@ -2669,7 +2677,7 @@ NULL
         if (getLongLongFromObjectOrReply(c,c->argv[2],&id,NULL)
             != C_OK) return;
         struct client *target = lookupClientByID(id);
-        if (target && target->flags & CLIENT_BLOCKED) {
+        if (target && target->flags & CLIENT_BLOCKED && moduleBlockedClientMayTimeout(target)) {
             if (unblock_error)
                 addReplyError(target,
                     "-UNBLOCKED client unblocked via CLIENT UNBLOCK");
@@ -3654,7 +3662,7 @@ int postponeClientRead(client *c) {
     if (server.io_threads_active &&
         server.io_threads_do_reads &&
         !ProcessingEventsWhileBlocked &&
-        !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_PENDING_READ)))
+        !(c->flags & (CLIENT_MASTER|CLIENT_SLAVE|CLIENT_PENDING_READ|CLIENT_BLOCKED))) 
     {
         c->flags |= CLIENT_PENDING_READ;
         listAddNodeHead(server.clients_pending_read,c);
@@ -3718,6 +3726,7 @@ int handleClientsWithPendingReadsUsingThreads(void) {
         c->flags &= ~CLIENT_PENDING_READ;
         listDelNode(server.clients_pending_read,ln);
 
+        serverAssert(!(c->flags & CLIENT_BLOCKED));
         if (processPendingCommandsAndResetClient(c) == C_ERR) {
             /* If the client is no longer valid, we avoid
              * processing the client later. So we just go
