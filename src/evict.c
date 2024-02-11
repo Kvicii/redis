@@ -295,11 +295,18 @@ unsigned long LFUTimeElapsed(unsigned long ldt) {
 
 /* Logarithmically increment a counter. The greater is the current counter value
  * the less likely is that it gets really implemented. Saturate it at 255. */
+// LFU 缓存淘汰策略, 计数器递增规则
+// 当访问次数 counter 越来越大时, 或者 lfu-log-factor 参数配置过大时, counter 递增的概率都会越来越低
+// 这种情况下可能会导致一些 key 虽然访问次数较高, 但是 counter 值却递增困难, 进而导致这些访问频次较高的 key 却优先被淘汰掉
+// 由于 counter 在递增时, 有随机数比较的逻辑, 这也会存在一定概率导致访问频次低的 key 的 counter 反而大于访问频次高的 key 的 counter 情况出现
 uint8_t LFULogIncr(uint8_t counter) {
     if (counter == 255) return 255;
     double r = (double)rand()/RAND_MAX;
     double baseval = counter - LFU_INIT_VAL;
     if (baseval < 0) baseval = 0;
+    // 用计数器当前的值乘以配置项 lfu_log_factor 加 1, 再取其倒数得到一个 p 值
+    // 然后把这个 p 值和一个取值范围在（0, 1）间的随机数 r 值比大小
+    // 只有 p 值 > r 值时, 计数器才加 1
     double p = 1.0/(baseval*server.lfu_log_factor+1);
     if (r < p) counter++;
     return counter;
@@ -315,9 +322,13 @@ uint8_t LFULogIncr(uint8_t counter) {
  * This function is used in order to scan the dataset for the best object
  * to fit: as we check for the candidate, we incrementally decrement the
  * counter of the scanned objects if needed. */
+// LFU 缓存淘汰策略, 计数器递减规则
+// 如果 lfu-decay-time 配置过大, 则 counter 衰减会变慢, 也会导致数据淘汰发生推迟的情况
 unsigned long LFUDecrAndReturn(robj *o) {
     unsigned long ldt = o->lru >> 8;
     unsigned long counter = o->lru & 255;
+    // 计算当前时间和数据最近一次访问时间的差值, 并把这个差值换算成以分钟为单位
+    // 然后 LFU 策略再把这个差值除以 lfu_decay_time 值, 所得的结果就是数据 counter 要衰减的值
     unsigned long num_periods = server.lfu_decay_time ? LFUTimeElapsed(ldt) / server.lfu_decay_time : 0;
     if (num_periods)
         counter = (num_periods > counter) ? 0 : counter - num_periods;

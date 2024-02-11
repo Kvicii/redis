@@ -30,22 +30,32 @@
 
 #ifndef __INTSET_H
 #define __INTSET_H
+
 #include <stdint.h>
 
 typedef struct intset {
     uint32_t encoding;
     uint32_t length;
+    // 使用整数数组记录数据, 数组是一块连续的内存空间, 避免内存碎片, 提升内存的使用效率
     int8_t contents[];
 } intset;
 
 intset *intsetNew(void);
+
 intset *intsetAdd(intset *is, int64_t value, uint8_t *success);
+
 intset *intsetRemove(intset *is, int64_t value, int *success);
+
 uint8_t intsetFind(intset *is, int64_t value);
+
 int64_t intsetRandom(intset *is);
+
 uint8_t intsetGet(intset *is, uint32_t pos, int64_t *value);
+
 uint32_t intsetLen(const intset *is);
+
 size_t intsetBlobLen(intset *is);
+
 int intsetValidateIntegrity(const unsigned char *is, size_t size, int deep);
 
 #ifdef REDIS_TEST

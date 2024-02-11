@@ -69,14 +69,22 @@ typedef void aeEventFinalizerProc(struct aeEventLoop *eventLoop, void *clientDat
 typedef void aeBeforeSleepProc(struct aeEventLoop *eventLoop);
 
 /* File event structure */
+// IO 事件, 所有的 IO 事件都会用文件描述符进行标识
 typedef struct aeFileEvent {
+    // 表示事件类型的掩码p
+    // 对于网络通信的事件来说, 主要有 AE_READABLE, AE_WRITABLE 和 AE_BARRIER 三种类型事件
+    // 框架在分发事件时, 依赖的就是结构体中的事件类型
     int mask; /* one of AE_(READABLE|WRITABLE|BARRIER) */
-    aeFileProc *rfileProc;
     aeFileProc *wfileProc;
+    // 指向 AE_READABLE 事件的处理函数
+    // 指向 AE_WRITEABLE 事件的处理函数
+    aeFileProc *rfileProc;
+    // 指向客户端私有数据的指针
     void *clientData;
 } aeFileEvent;
 
 /* Time event structure */
+// 时间事件, 按一定时间周期触发的事件
 typedef struct aeTimeEvent {
     long long id; /* time event identifier. */
     monotime when;
@@ -100,12 +108,19 @@ typedef struct aeEventLoop {
     int maxfd;   /* highest file descriptor currently registered */
     int setsize; /* max number of file descriptors tracked */
     long long timeEventNextId;
+    // //IO 事件数组
     aeFileEvent *events; /* Registered events */
+    // 已触发事件数组
+    // 并不是一类专门的事件类型, 只是用来记录已触发事件对应的文件描述符信息
     aeFiredEvent *fired; /* Fired events */
+    // 时间事件的链表头
     aeTimeEvent *timeEventHead;
     int stop;
+    // 和 API 调用接口相关的数据
     void *apidata; /* This is used for polling API specific data */
+    // 进入事件循环流程前执行的函数
     aeBeforeSleepProc *beforesleep;
+    // 退出事件循环流程后执行的函数
     aeBeforeSleepProc *aftersleep;
     int flags;
 } aeEventLoop;
@@ -114,6 +129,7 @@ typedef struct aeEventLoop {
 aeEventLoop *aeCreateEventLoop(int setsize);
 void aeDeleteEventLoop(aeEventLoop *eventLoop);
 void aeStop(aeEventLoop *eventLoop);
+// 负责事件和 handler 注册
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData);
 void aeDeleteFileEvent(aeEventLoop *eventLoop, int fd, int mask);
@@ -122,8 +138,10 @@ long long aeCreateTimeEvent(aeEventLoop *eventLoop, long long milliseconds,
         aeTimeProc *proc, void *clientData,
         aeEventFinalizerProc *finalizerProc);
 int aeDeleteTimeEvent(aeEventLoop *eventLoop, long long id);
+// 负责事件捕获与分发
 int aeProcessEvents(aeEventLoop *eventLoop, int flags);
 int aeWait(int fd, int mask, long long milliseconds);
+// 事件驱动框架主循环
 void aeMain(aeEventLoop *eventLoop);
 char *aeGetApiName(void);
 void aeSetBeforeSleepProc(aeEventLoop *eventLoop, aeBeforeSleepProc *beforesleep);

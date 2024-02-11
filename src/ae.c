@@ -49,15 +49,15 @@
 /* Include the best multiplexing layer supported by this system.
  * The following should be ordered by performances, descending. */
 #ifdef HAVE_EVPORT
-#include "ae_evport.c"
+#include "ae_evport.c"  // Solaris
 #else
     #ifdef HAVE_EPOLL
-    #include "ae_epoll.c"
+    #include "ae_epoll.c"   // Linux
     #else
         #ifdef HAVE_KQUEUE
-        #include "ae_kqueue.c"
+        #include "ae_kqueue.c"  // MacOS
         #else
-        #include "ae_select.c"
+        #include "ae_select.c"  // Windows
         #endif
     #endif
 #endif
@@ -69,13 +69,17 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
 
     monotonicInit();    /* just in case the calling app didn't initialize */
 
+    // 1. 创建一个 aeEventLoop 结构体类型的变量 eventLoop
+    // 给 eventLoop 的成员变量分配内存空间:
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
     // 事件链表
     // 已经记录的一些事件
+    // 比如按照传入的参数 setsize, 给 IO 事件数组和已触发事件数组分配相应的内存空间
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
     // 已触发的一些事件
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
+    // 给 eventLoop 的成员变量赋初始值
     eventLoop->setsize = setsize;
     eventLoop->timeEventHead = NULL;
     eventLoop->timeEventNextId = 0;
@@ -86,6 +90,8 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->flags = 0;
     // 调用Epoll的具体实现
     // ae_epoll.c
+    // 2. 调用 aeApiCreate 函数, aeApiCreate 函数封装了操作系统提供的 IO 多路复用函数
+    // 假设 Redis 运行在 Linux 操作系统上, 并且 IO 多路复用机制是 epoll, 此时 aeApiCreate 函数就会调用 epoll_create 创建 epoll 实例, 同时会创建 epoll_event 结构的数组, 数组大小等于参数 setsize
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
@@ -159,6 +165,7 @@ void aeStop(aeEventLoop *eventLoop) {
     eventLoop->stop = 1;
 }
 
+// 负责事件和 handler 注册
 int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
         aeFileProc *proc, void *clientData)
 {
@@ -168,6 +175,7 @@ int aeCreateFileEvent(aeEventLoop *eventLoop, int fd, int mask,
     }
     aeFileEvent *fe = &eventLoop->events[fd];
     // ae_epoll.c
+    // 封装 aeApiAddEvent 函数, 对 epoll_ctl 进行调用, 注册希望监听的事件和相应的处理函数
     if (aeApiAddEvent(eventLoop, fd, mask) == -1)
         return AE_ERR;
     fe->mask |= mask;
@@ -350,17 +358,21 @@ static int processTimeEvents(aeEventLoop *eventLoop) {
  * if flags has AE_CALL_BEFORE_SLEEP set, the beforesleep callback is called.
  *
  * The function returns the number of events processed. */
+// 负责事件捕获与分发
+// 主要功能: 包括捕获事件, 判断事件类型和调用具体的事件处理函数, 从而实现事件的处理
 int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 {
     int processed = 0, numevents;
 
     /* Nothing to do? return ASAP */
+    /* 若没有事件处理，则立刻返回*/
     if (!(flags & AE_TIME_EVENTS) && !(flags & AE_FILE_EVENTS)) return 0;
 
     /* Note that we want to call select() even if there are no
      * file events to process as long as we want to process time
      * events, in order to sleep until the next time event is ready
      * to fire. */
+    /*如果有IO事件发生, 或者紧急的时间事件发生, 则开始处理*/
     if (eventLoop->maxfd != -1 ||
         ((flags & AE_TIME_EVENTS) && !(flags & AE_DONT_WAIT))) {
         int j;
@@ -397,7 +409,12 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
 
         /* Call the multiplexing API, will return only on timeout or when
          * some event fires. */
-        // 最终调用到的是epoll的epoll_wait
+        // 捕获事件, 根据不同的操作系统调用不同的实现:
+            // ae_epoll.c, 对应 Linux 上的 IO 复用函数 epoll
+            // ae_evport.c, 对应 Solaris 上的 IO 复用函数 evport
+            // ae_kqueue.c, 对应 macOS 或 FreeBSD 上的 IO 复用函数 kqueue
+            // ae_select.c, 对应 Linux(或 Windows)的 IO 复用函数 select
+        // 最终调用到的是 epoll 的 epoll_wait
         // ae_epoll.c
         numevents = aeApiPoll(eventLoop, tvp);
 
@@ -460,9 +477,11 @@ int aeProcessEvents(aeEventLoop *eventLoop, int flags)
         }
     }
     /* Check time events */
+    /* 若有有时间事件, 则调用 processTimeEvents 函数处理 */
     if (flags & AE_TIME_EVENTS)
         processed += processTimeEvents(eventLoop);
 
+    /* 返回已经处理的文件或时间*/
     return processed; /* return the number of processed file/time events */
 }
 
@@ -488,6 +507,7 @@ int aeWait(int fd, int mask, long long milliseconds) {
     }
 }
 
+// 事件驱动框架主循环
 void aeMain(aeEventLoop *eventLoop) {
     eventLoop->stop = 0;
     while (!eventLoop->stop) {

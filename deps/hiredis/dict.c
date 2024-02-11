@@ -138,6 +138,7 @@ static int dictExpand(dict *ht, unsigned long size) {
 }
 
 /* Add an element to the target hash table */
+// 向 Hash 表中添加一个键值对
 static int dictAdd(dict *ht, void *key, void *val) {
     int index;
     dictEntry *entry;
@@ -166,6 +167,7 @@ static int dictAdd(dict *ht, void *key, void *val) {
  * Return 1 if the key was added from scratch, 0 if there was already an
  * element with such key and dictReplace() just performed a value update
  * operation. */
+// 用来往 Hash 表中添加一个键值对, 或者键值对存在时, 修改键值对
 static int dictReplace(dict *ht, void *key, void *val) {
     dictEntry *entry, auxentry;
 

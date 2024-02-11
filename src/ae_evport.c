@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+// 对应 Solaris 上的 IO 复用函数 evport
 
 #include <assert.h>
 #include <errno.h>

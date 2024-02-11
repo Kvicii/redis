@@ -644,6 +644,9 @@ loaderr:
  * Both filename and options can be NULL, in such a case are considered
  * empty. This way loadServerConfig can be used to just load a file or
  * just load a string. */
+// filename: Redis 配置文件
+// options: 命令行参数的解析字符串
+// 把解析后的命令行参数, 追加到配置文件形成的配置项字符串; 之后配置项字符串就同时包含了配置文件中设置的参数, 以及命令行设置的参数
 void loadServerConfig(char *filename, char config_from_stdin, char *options) {
     sds config = sdsempty();
     char buf[CONFIG_MAX_LINE+1];
@@ -674,6 +677,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
         config = sdscat(config,"\n");
         config = sdscat(config,options);
     }
+    // 对配置项字符串中的每一个配置项进行匹配, 一旦匹配成功, loadServerConfigFromString 函数就会按照配置项的值设置 server 的参数
     loadServerConfigFromString(config);
     sdsfree(config);
 }

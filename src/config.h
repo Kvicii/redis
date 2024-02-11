@@ -31,6 +31,7 @@
 #define __CONFIG_H
 
 #ifdef __APPLE__
+#define _DARWIN_C_SOURCE
 #include <AvailabilityMacros.h>
 #endif
 

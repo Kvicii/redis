@@ -27,7 +27,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+// 对应 macOS 或 FreeBSD 上的 IO 复用函数 kqueue
 
 #include <sys/types.h>
 #include <sys/event.h>

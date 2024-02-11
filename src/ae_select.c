@@ -27,7 +27,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-
+// 对应 Linux(或 Windows) 的 IO 复用函数 select
 
 #include <sys/select.h>
 #include <string.h>
