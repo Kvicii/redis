@@ -94,12 +94,48 @@
  *
  */
 
+// Radix Tree 优势:
+    // 本质上是前缀树, 所以存储有公共前缀的数据时, 比 B+ 树, 跳表节省内存
+    // 没有公共前缀的数据项, 压缩存储, value 用 listpack 存储,也可以节省内存
+    // 查询复杂度是 O(K), 只与目标长度有关, 与总数据量无关
+    // 这种数据结构也经常用在搜索引擎提示, 文字自动补全等场景
+
+// Stream 在存消息时, 推荐使用默认自动生成的 时间戳+序号 作为消息 ID, 不建议自己指定消息 ID, 这样才能发挥 Radix Tree 公共前缀的优势
+
+// Radix Tree 不足
+    // 如果数据集公共前缀较少, 会导致内存占用多
+    // 增删节点需要处理其它节点的分裂, 合并,跳表只需调整前后指针即可
+    // B+ 树, 跳表范围查询友好, 直接遍历链表即可, Radix Tree 需遍历树结构
+    // 实现难度高比 B+ 树, 跳表复杂
 #define RAX_NODE_MAX_SIZE ((1<<29)-1)
+// 在 raxNode 的实现中, 无论是非压缩节点还是压缩节点, 其实具有两个特点:
+    // 它们所代表的 key, 是从根节点到当前节点路径上的字符串, 但并不包含当前节点
+    // 它们本身就已经包含了子节点代表的字符或合并字符串, 而对于它们的子节点来说, 也都属于非压缩或压缩节点; 所以子节点本身又会保存子节点的子节点所代表的字符或合并字符串
+// Radix Tree 非叶子节点, 要不然是压缩节点, 只指向单个子节点; 要不然是非压缩节点, 指向多个子节点, 但每个子节点只表示一个字符
+// 所以非叶子节点无法同时指向表示单个字符的子节点和表示合并字符串的子节点
+// 根节点是空的
+
+// 非压缩节点和压缩节点的相同之处:
+    // 1. 都有保存元数据的节点头 HDR
+    // 2. 都会包含指向子节点的指针, 以及子节点所代表的字符串
+    // 3. 从根节点到当前节点路径上的字符串如果是 Radix Tree 的一个 key, 它们都会包含指向 key 对应 value 的指针
+// 非压缩节点和压缩节点的不同之处:
+    // 1. 非压缩节点指向的子节点, 每个子节点代表一个字符, 非压缩节点可以指向多个子节点
+    // 2. 压缩节点指向的子节点, 代表的是一个合并字符串, 压缩节点只能指向一个子节点
 typedef struct raxNode {
+    // 从 Radix Tree 的根节点到当前节点路径上的字符组成的字符串, 是否表示了一个完整的 key
     uint32_t iskey:1;     /* Does this node contain a key? */
+    // 节点的值是否为 NULL
+    // 如果当前节点是空节点, 那么该节点就不需要为指向 value 的指针分配内存空间了
     uint32_t isnull:1;    /* Associated value is NULL (don't store it). */
+    // 节点是否被压缩
     uint32_t iscompr:1;   /* Node is compressed. */
+    // 节点大小
+    // 具体值会根据节点是压缩节点还是非压缩节点而不同:
+        // 如果当前节点是压缩节点, 该值表示压缩数据的长度
+        // 如果是非压缩节点, 该值表示该节点指向的子节点个数
     uint32_t size:29;     /* Number of children, or compressed string len. */
+    // 这 4 个元数据就对应压缩节点和非压缩节点头部的 HDR, 其中 iskey, isnull 和 iscompr 分别用 1 bit 表示, 而 size 占用 29 bit
     /* Data layout is as follows:
      *
      * If node is not compressed we have 'size' bytes, one for each children
@@ -127,12 +163,19 @@ typedef struct raxNode {
      * children, an additional value pointer is present (as you can see
      * in the representation above as "value-ptr" field).
      */
+    // 节点的实际存储数据
+    // 对于非压缩节点来说, data 数组包括子节点对应的字符, 指向子节点的指针, 以及节点表示 key 时对应的 value 指针
+    // 对于压缩节点来说, data 数组包括子节点对应的合并字符串, 指向子节点的指针, 以及节点为 key 时的 value 指针
+    // 为了满足内存对齐的需要, raxNode 会根据保存的字符串长度, 在字符串后面填充一些字节
     unsigned char data[];
 } raxNode;
 
 typedef struct rax {
+    // 指向头节点的指针
     raxNode *head;
+    // Radix Tree 中的 key 个数
     uint64_t numele;
+    // Radix Tree 中 raxNode 的个数
     uint64_t numnodes;
 } rax;
 

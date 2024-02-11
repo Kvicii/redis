@@ -194,21 +194,25 @@ void zslUpdateNode(zskiplist *zsl, zskiplistNode *oldnode, zskiplistNode *newnod
     }
 }
 
-/* Defrag helper for sorted set.
- * Update the robj pointer, defrag the skiplist struct and return the new score
- * reference. We may not access oldele pointer (not even the pointer stored in
- * the skiplist), as it was already freed. Newele may be null, in which case we
+/* defrag helper for sorted set.
+ * update the robj pointer, defrag the skiplist struct and return the new score
+ * reference. we may not access oldele pointer (not even the pointer stored in
+ * the skiplist), as it was already freed. newele may be null, in which case we
  * only need to defrag the skiplist, but not update the obj pointer.
- * When return value is non-NULL, it is the score reference that must be updated
+ * when return value is non-null, it is the score reference that must be updated
  * in the dict record. */
 double *zslDefrag(zskiplist *zsl, double score, sds oldele, sds newele) {
     zskiplistNode *update[ZSKIPLIST_MAXLEVEL], *x, *newx;
     int i;
     sds ele = newele? newele: oldele;
 
-    /* find the skiplist node referring to the object that was moved,
-     * and all pointers that need to be updated if we'll end up moving the skiplist node. */
+    /** find the skiplist node referring to the object that was moved,
+     * and all pointers that need to be updated if we'll end up moving the skiplist node
+     *
+     * 获取跳表的头结点
+     */
     x = zsl->header;
+    // 从最大层数开始逐一遍历
     for (i = zsl->level-1; i >= 0; i--) {
         while (x->level[i].forward &&
             x->level[i].forward->ele != oldele && /* make sure not to access the

@@ -40,36 +40,56 @@ extern const char *SDS_NOINIT;
 #include <stdarg.h>
 #include <stdint.h>
 
+// SDS 本质还是字符数组, 只是在字符数组基础上增加了额外的元数据
 typedef char *sds;
 
+// 主要区别就在于 它们数据结构中的字符数组现有长度 len 和分配空间长度 alloc 这两个元数据的数据类型不同
+// SDS 之所以设计不同的结构头(即不同类型) 是为了能灵活保存不同大小的字符串 从而有效节省内存空间
+// 假设 SDS 都设计一样大小的结构头 比如都使用 uint64_t 类型表示 len 和 alloc 那么假设要保存的字符串是 10 个字节 而此时结构头中 len 和 alloc 本身就占用了 16 个字节了 比保存的数据都多了 所以这样的设计不满足 Redis 节省内存的需求
 /* Note: sdshdr5 is never used, we just access the flags byte directly.
- * However is here to document the layout of type 5 SDS strings. */
+ * However is here to document the layout of type 5 SDS strings.
+ * 该类型不再使用
+ **/
 struct __attribute__ ((__packed__)) sdshdr5 {
     unsigned char flags; /* 3 lsb of type, and 5 msb of string length */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr8 {
+    /* 字符数组现有长度*/
     uint8_t len; /* used */
+    /* 字符数组的已分配空间, 不包括结构体和 \0 结束字符*/
     uint8_t alloc; /* excluding the header and null terminator */
+    // 能表示的字符数组长度不超过 2^8 = 1字节
+    /* SDS类型*/
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    /*字符数组*/
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr16 {
     uint16_t len; /* used */
     uint16_t alloc; /* excluding the header and null terminator */
+    // 能表示的字符数组长度不超过 2^16 = 2字节
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
 struct __attribute__ ((__packed__)) sdshdr32 {
     uint32_t len; /* used */
     uint32_t alloc; /* excluding the header and null terminator */
+    // 能表示的字符数组长度不超过 2^32 = 4字节
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
     char buf[];
 };
+// __attribute__ ((__packed__))的作用就是告诉编译器 在编译 sdshdr 结构时 不要使用字节对齐的方式 而是采用紧凑的方式分配内存
+// 因为在默认情况下 编译器会按照 8 字节对齐的方式 给变量分配内存 即使一个变量的大小不到 8 个字节 编译器也会给它分配 8 个字节
 struct __attribute__ ((__packed__)) sdshdr64 {
+    // 字符数组现有长度
     uint64_t len; /* used */
+    // 分配给字符数组的空间长度
     uint64_t alloc; /* excluding the header and null terminator */
+    // sds的类型
+    // 能表示的字符数组长度不超过 2^64 = 8字节
     unsigned char flags; /* 3 lsb of type, 5 unused bits */
+    // 字符数组 用于存储实际数据
     char buf[];
 };
 

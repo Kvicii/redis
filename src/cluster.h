@@ -188,15 +188,30 @@ typedef struct clusterState {
 /* Initially we don't know our "name", but we'll find it once we connect
  * to the first node, using the getsockname() function. Then we'll use this
  * address for all the next messages. */
+// redis cluster 发送 Gossip 消息的消息体格式, 共 104 字节
+// 每个实例在发送一个 Gossip 消息时, 除了会传递自身的状态信息, 默认还会传递集群十分之一实例的状态信息
+// 对于一个包含了 1000 个实例的集群来说, 每个实例发送一个 PING 消息时, 会包含 100 个实例的状态信息, 总的数据量是 10400 字节, 再加上发送实例自身的信息, 一个 Gossip 消息大约是 10KB
+// 此外为了让 Slot 映射表能够在不同实例间传播, PING 消息中还带有一个长度为 16384 bit 的 Bitmap, 这个 Bitmap 的每一位对应了一个 Slot, 如果某一位为 1, 就表示这个 Slot 属于当前实例, 这个 Bitmap 大小换算成字节后是 2KB
+// 实例状态信息和 Slot 分配信息相加, 就可以得到一个 PING 消息的大小了, 大约是 12KB
+// PONG 消息和 PING 消息的内容一样, 所以它的大小大约是 12KB, 每个实例发送了 PING 消息后, 还会收到返回的 PONG 消息, 两个消息加起来有 24KB
 typedef struct {
+    // 40 字节
     char nodename[CLUSTER_NAMELEN];
+    // 4 字节
     uint32_t ping_sent;
+    // 4 字节
     uint32_t pong_received;
+    // 46 字节
     char ip[NET_IP_STR_LEN];  /* IP address last time it was seen */
+    // 2 字节
     uint16_t port;              /* base port last time it was seen */
+    // 2 字节
     uint16_t cport;             /* cluster port last time it was seen */
+    // 2 字节
     uint16_t flags;             /* node->flags copy */
+    // 2 字节
     uint16_t pport;             /* plaintext-port, when base port is TLS */
+    // 2 字节
     uint16_t notused1;
 } clusterMsgDataGossip;
 
